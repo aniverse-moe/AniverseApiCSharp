@@ -482,6 +482,12 @@ MigrationBackup/
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
 
+
+### JWT ###
+appsettings.Development.json
+appsettings.json
+
+
 ### Database ###
 *.accdb
 *.db
