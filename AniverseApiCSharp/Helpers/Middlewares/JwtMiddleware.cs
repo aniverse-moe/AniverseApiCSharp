@@ -9,7 +9,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace AniverseApiCSharp.Helpers
+namespace AniverseApiCSharp.Helpers.Middlewares
 {
     public class JwtMiddleware
     {
@@ -27,12 +27,12 @@ namespace AniverseApiCSharp.Helpers
             var token = context.Request.Headers["Authorization"].FirstOrDefault()?.Split(" ").Last();
 
             if (token != null)
-                attachUserToContext(context, userService, token);
+                AttachUserToContext(context, userService, token);
 
             await _next(context);
         }
 
-        private void attachUserToContext(HttpContext context, IUserService userService, string token)
+        private void AttachUserToContext(HttpContext context,  IUserService userService, string token)
         {
             try
             {
@@ -51,7 +51,7 @@ namespace AniverseApiCSharp.Helpers
                 var jwtToken = (JwtSecurityToken)validatedToken;
                 var userId = int.Parse(jwtToken.Claims.First(x => x.Type == "id").Value);
 
-                // attach user to context on successful jwt validation
+                //attach user to context on successful jwt validation
                 context.Items["User"] = userService.GetById(userId);
             }
             catch

@@ -4,9 +4,9 @@ using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace AniverseApiCSharp.Models
+namespace AniverseApiCSharp.Models.User
 {
-    public class AuthenticateRequest
+    public class RegisterRequest
     {
         [Required]
         public string Username { get; set; }

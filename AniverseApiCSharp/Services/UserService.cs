@@ -1,12 +1,16 @@
 ﻿using AniverseApiCSharp.Entities;
 using AniverseApiCSharp.Helpers;
+using AniverseApiCSharp.Helpers.Database;
+using AniverseApiCSharp.Helpers.Exceptions;
 using AniverseApiCSharp.Models;
+using AniverseApiCSharp.Models.User;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System;
 using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
+using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
@@ -15,64 +19,152 @@ namespace AniverseApiCSharp.Services
 {
     public interface IUserService
     {
-        AuthenticateResponse Authenticate(AuthenticateRequest model);
+        User Authenticate(AuthenticateRequest model);
+        User Authenticate(string username, string password);
         IEnumerable<User> GetAll();
         User GetById(int id);
+        User Create(User user, string password);
+        void Update(User user, string password = null);
+        void Delete(int id);
     }
 
     public class UserService : IUserService
     {
-        // users hardcoded for simplicity, store in a db with hashed passwords in production applications
-        private List<User> _users = new List<User>
-        {
-            new User { Id = 1, FirstName = "Test", LastName = "User", Username = "test", Password = "test" }
-        };
+        private DataContext _context;
 
-        private readonly AppSettings _appSettings;
-
-        public UserService(IOptions<AppSettings> appSettings)
+        public UserService(DataContext context)
         {
-            _appSettings = appSettings.Value;
+            _context = context;
         }
 
-        public AuthenticateResponse Authenticate(AuthenticateRequest model)
+        public User Authenticate(AuthenticateRequest model)
         {
-            var user = _users.SingleOrDefault(x => x.Username == model.Username && x.Password == model.Password);
+            return Authenticate(model.Username, model.Password);
+        }
 
-            // return null if user not found
-            if (user == null) return null;
+        public User Authenticate(string username, string password)
+        {
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                return null;
 
-            // authentication successful so generate jwt token
-            var token = GenerateJwtToken(user);
+            var user = _context.Users.SingleOrDefault(x => x.Username == username);
 
-            return new AuthenticateResponse(user, token);
+            // check if username exists
+            if (user == null)
+                return null;
+
+            // check if password is correct
+            if (!VerifyPasswordHash(password, user.PasswordHash, user.PasswordSalt))
+                return null;
+
+            // authentication successful
+            return user;
         }
 
         public IEnumerable<User> GetAll()
         {
-            return _users;
+            return _context.Users;
         }
 
         public User GetById(int id)
         {
-            return _users.FirstOrDefault(x => x.Id == id);
+            return _context.Users.Find(id);
         }
 
-        // helper methods
-
-        private string GenerateJwtToken(User user)
+        public User Create(User user, string password)
         {
-            // generate token that is valid for 7 days
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_appSettings.Secret);
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity(new[] { new Claim("id", user.Id.ToString()) }),
-                Expires = DateTime.UtcNow.AddDays(7), // Days before token expire
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
-            };
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            return tokenHandler.WriteToken(token);
+            // validation
+            if (string.IsNullOrWhiteSpace(password))
+                throw new AppException("Password is required");
+
+            if (_context.Users.Any(x => x.Username == user.Username))
+                throw new AppException("Username \"" + user.Username + "\" is already taken");
+
+            byte[] passwordHash, passwordSalt;
+            CreatePasswordHash(password, out passwordHash, out passwordSalt);
+
+            user.PasswordHash = passwordHash;
+            user.PasswordSalt = passwordSalt;
+
+            _context.Users.Add(user);
+            _context.SaveChanges();
+
+            return user;
         }
+
+        public void Update(User userParam, string password = null)
+        {
+            var user = _context.Users.Find(userParam.Id);
+
+            if (user == null)
+                throw new AppException("User not found");
+
+            // update username if it has changed
+            if (!string.IsNullOrWhiteSpace(userParam.Username) && userParam.Username != user.Username)
+            {
+                // throw error if the new username is already taken
+                if (_context.Users.Any(x => x.Username == userParam.Username))
+                    throw new AppException("Username " + userParam.Username + " is already taken");
+
+                user.Username = userParam.Username;
+            }
+
+            // update password if provided
+            if (!string.IsNullOrWhiteSpace(password))
+            {
+                byte[] passwordHash, passwordSalt;
+                CreatePasswordHash(password, out passwordHash, out passwordSalt);
+
+                user.PasswordHash = passwordHash;
+                user.PasswordSalt = passwordSalt;
+            }
+
+            _context.Users.Update(user);
+            _context.SaveChanges();
+        }
+
+        public void Delete(int id)
+        {
+            var user = _context.Users.Find(id);
+            if (user != null)
+            {
+                _context.Users.Remove(user);
+                _context.SaveChanges();
+            }
+        }
+
+        // private helper methods
+
+        private static void CreatePasswordHash(string password, out byte[] passwordHash, out byte[] passwordSalt)
+        {
+            if (password == null) throw new ArgumentNullException("password");
+            if (string.IsNullOrWhiteSpace(password)) throw new ArgumentException("Value cannot be empty or whitespace only string.", "password");
+
+            using (var hmac = new System.Security.Cryptography.HMACSHA512())
+            {
+                passwordSalt = hmac.Key;
+                passwordHash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));
+            }
+        }
+
+        private static bool VerifyPasswordHash(string password, byte[] storedHash, byte[] storedSalt)
+        {
+            if (password == null) throw new ArgumentNullException("password");
+            if (string.IsNullOrWhiteSpace(password)) throw new ArgumentException("Value cannot be empty or whitespace only string.", "password");
+            if (storedHash.Length != 64) throw new ArgumentException("Invalid length of password hash (64 bytes expected).", "passwordHash");
+            if (storedSalt.Length != 128) throw new ArgumentException("Invalid length of password salt (128 bytes expected).", "passwordHash");
+
+            using (var hmac = new System.Security.Cryptography.HMACSHA512(storedSalt))
+            {
+                var computedHash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(password));
+                for (int i = 0; i < computedHash.Length; i++)
+                {
+                    if (computedHash[i] != storedHash[i]) return false;
+                }
+            }
+
+            return true;
+        }
+
     }
 }

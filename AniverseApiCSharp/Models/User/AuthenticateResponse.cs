@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace AniverseApiCSharp.Models
+namespace AniverseApiCSharp.Models.User
 {
     public class AuthenticateResponse
     {
@@ -15,11 +15,9 @@ namespace AniverseApiCSharp.Models
         public string Token { get; set; }
 
 
-        public AuthenticateResponse(User user, string token)
+        public AuthenticateResponse(UserResponse user, string token)
         {
             Id = user.Id;
-            FirstName = user.FirstName;
-            LastName = user.LastName;
             Username = user.Username;
             Token = token;
         }

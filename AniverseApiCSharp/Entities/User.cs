@@ -9,11 +9,12 @@ namespace AniverseApiCSharp.Entities
     public class User
     {
         public int Id { get; set; }
-        public string FirstName { get; set; }
-        public string LastName { get; set; }
         public string Username { get; set; }
 
         [JsonIgnore] // Wont return in API calls
-        public string Password { get; set; }
+        public byte[] PasswordHash { get; set; }
+
+        [JsonIgnore] // Wont return in API calls
+        public byte[] PasswordSalt { get; set; }
     }
 }
